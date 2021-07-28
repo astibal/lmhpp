@@ -1,4 +1,4 @@
-# lmhttpdcpp
+# lmhpp
 Super-simple, single-header **libmicrohttpd** C++ wrapper.
 
 Based on gist: https://gist.github.com/artur-kink/96fffe58ddb7e4b081f6
