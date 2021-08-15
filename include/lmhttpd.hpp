@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstring>
 #include <vector>
 #include <sstream>
+#include <optional>
+#include <functional>
 
 namespace lmh {
 
@@ -130,6 +132,9 @@ namespace lmh {
     public:
         explicit WebServer(int p) : port(p), daemon(nullptr) {};
 
+        // optional handlers
+        std::optional<std::function<bool()>> handler_should_terminate;
+
         void addController(Controller* controller){
             controllers.emplace_back(controller);
         };
@@ -145,7 +150,13 @@ namespace lmh {
                 return 1;
 
             while(true){
-                sleep(10000);
+                ::usleep(100*1000);
+
+                if(handler_should_terminate.has_value()) {
+                    auto& sh_callback = handler_should_terminate.value();
+                    if(sh_callback())
+                        break;
+                }
             }
 
             MHD_stop_daemon(daemon);
