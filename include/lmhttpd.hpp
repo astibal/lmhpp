@@ -63,6 +63,15 @@ namespace lmh {
 
     };
 
+
+    struct ResponseParams {
+        ResponseParams() = default;
+
+        unsigned short response_code = MHD_HTTP_OK;
+        std::string response_message;
+
+        std::vector<std::pair<std::string, std::string>> headers;
+    };
 /**
  * The dynamic controller is a controller for creating user defined pages.
  */
@@ -73,7 +82,7 @@ namespace lmh {
         /**
          * User defined http response.
          */
-        virtual void createResponse(struct MHD_Connection* connection,
+        virtual ResponseParams createResponse(struct MHD_Connection* connection,
                                     const char* url, const char* method, const char* upload_data,
                                     size_t* upload_data_size, std::stringstream& response) = 0;
 
@@ -82,7 +91,7 @@ namespace lmh {
                                   size_t* upload_data_size) override {
 
             std::stringstream response_ss;
-            createResponse(connection, url, method, upload_data, upload_data_size, response_ss);
+            auto const response_params = createResponse(connection, url, method, upload_data, upload_data_size, response_ss);
 
             //Send response.
             auto response_str = response_ss.str();
@@ -90,7 +99,11 @@ namespace lmh {
                     response_str.size(),
                     response_str.data(), MHD_RESPMEM_MUST_COPY);
 
-            int ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
+            for(auto const& [hdr, hdr_val]: response_params.headers ) {
+                MHD_add_response_header(response, hdr.c_str(), hdr_val.c_str());
+            }
+
+            int ret = MHD_queue_response(connection, response_params.response_code, response);
             MHD_destroy_response(response);
 
             return ret;
@@ -131,6 +144,7 @@ namespace lmh {
         }
     public:
         explicit WebServer(int p) : port(p), daemon(nullptr) {};
+        bool opt_bind_loopback = false;
 
         // optional handlers
         std::optional<std::function<bool()>> handler_should_terminate;
@@ -140,10 +154,18 @@ namespace lmh {
         };
 
         int start(){
+            sockaddr_in bind_addr{};
+
+            memset(&bind_addr, 0, sizeof(bind_addr));
+            bind_addr.sin_family = AF_INET;
+            bind_addr.sin_port = htons(port);
+            if(opt_bind_loopback) bind_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
             daemon = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION,
                                       port, nullptr, nullptr,
                                       reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
                                       this,
+                                      MHD_OPTION_SOCK_ADDR, (struct sockaddr *)(&bind_addr),
                                       MHD_OPTION_END);
 
             if(!daemon)
