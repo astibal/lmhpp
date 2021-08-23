@@ -122,8 +122,6 @@ namespace lmh {
                                    const char * url, const char * method, const char * version,
                                    const char * upload_data, size_t * upload_data_size, void ** ptr) {
 
-            std::cout << "Request: " << url << ", Method: " << method << std::endl;
-
             auto* server = static_cast<WebServer*>(cls);
 
             Controller* controller = nullptr;
