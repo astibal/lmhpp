@@ -49,6 +49,7 @@ namespace lmh {
     class Controller{
 
     public:
+        virtual ~Controller() = default;
         /**
          * Check if given path and method are handled by this controller.
          */
@@ -112,8 +113,15 @@ namespace lmh {
 
     class WebServer{
     private:
-        int port;
-        struct MHD_Daemon* daemon;
+        uint16_t port_;
+        struct MHD_Daemon* daemon_;
+        struct options_t {
+            bool bind_loopback = false;
+
+            // optional handlers
+            std::optional<std::function<bool()>> handler_should_terminate;
+        };
+        options_t options_;
 
         /** List of controllers this server has. */
         std::vector<Controller*> controllers;
@@ -122,7 +130,7 @@ namespace lmh {
                                    const char * url, const char * method, const char * version,
                                    const char * upload_data, size_t * upload_data_size, void ** ptr) {
 
-            auto* server = static_cast<WebServer*>(cls);
+            auto const* server = static_cast<WebServer*>(cls);
 
             Controller* controller = nullptr;
             for(auto* c: server->controllers){
@@ -133,7 +141,6 @@ namespace lmh {
             }
 
             if(!controller){
-                std::cout << "Path not found.\n";
                 struct MHD_Response* response = MHD_create_response_from_buffer(0, nullptr, MHD_RESPMEM_PERSISTENT);
                 return MHD_queue_response (connection, MHD_HTTP_NOT_FOUND, response);
             }
@@ -141,11 +148,11 @@ namespace lmh {
             return controller->handleRequest(connection, url, method, upload_data, upload_data_size);
         }
     public:
-        explicit WebServer(int p) : port(p), daemon(nullptr) {};
-        bool opt_bind_loopback = false;
+        explicit WebServer(uint16_t p) : port_(p) {};
 
-        // optional handlers
-        std::optional<std::function<bool()>> handler_should_terminate;
+        options_t& options() { return options_; }
+        options_t const& options() const { return options_; }
+
 
         void addController(Controller* controller){
             controllers.emplace_back(controller);
@@ -156,30 +163,30 @@ namespace lmh {
 
             memset(&bind_addr, 0, sizeof(bind_addr));
             bind_addr.sin_family = AF_INET;
-            bind_addr.sin_port = htons(port);
-            if(opt_bind_loopback) bind_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            bind_addr.sin_port = htons(port_);
+            if(options().bind_loopback) bind_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-            daemon = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION,
-                                      port, nullptr, nullptr,
+            daemon_ = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION,
+                                      port_, nullptr, nullptr,
                                       reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
                                       this,
-                                      MHD_OPTION_SOCK_ADDR, (struct sockaddr *)(&bind_addr),
+                                      MHD_OPTION_SOCK_ADDR, &bind_addr,
                                       MHD_OPTION_END);
 
-            if(!daemon)
+            if(!daemon_)
                 return 1;
 
             while(true){
                 ::usleep(100*1000);
 
-                if(handler_should_terminate.has_value()) {
-                    auto& sh_callback = handler_should_terminate.value();
+                if(options().handler_should_terminate.has_value()) {
+                    auto const& sh_callback = options().handler_should_terminate.value();
                     if(sh_callback())
                         break;
                 }
             }
 
-            MHD_stop_daemon(daemon);
+            MHD_stop_daemon(daemon_);
             return 0;
         }
     };
