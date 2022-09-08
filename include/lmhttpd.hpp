@@ -46,6 +46,18 @@ namespace lmh {
 /**
  * Base controller for handling http requests.
  */
+
+    class Controller;
+    struct ConnectionState {
+        explicit ConnectionState(Controller& controller) : conroller(controller) {}
+        Controller& conroller;
+        std::string request_data;
+
+        bool response_sent = false;
+        std::vector<std::pair<std::string,std::string>> response_headers;
+        std::string response_data;
+    };
+
     class Controller{
 
     public:
@@ -60,15 +72,19 @@ namespace lmh {
          */
         virtual int handleRequest(struct MHD_Connection* connection,
                                   const char* url, const char* method, const char* upload_data,
-                                  size_t* upload_data_size) = 0;
-
+                                  size_t* upload_data_size, void** ptr) = 0;
+        virtual int handleComplete(struct MHD_Connection* connection, enum MHD_RequestTerminationCode toe, ConnectionState* cs) {
+            if(cs) delete cs;
+            return MHD_YES;
+        }
+        virtual ConnectionState* create_state() { return new ConnectionState(*this); };
     };
 
 
     struct ResponseParams {
         ResponseParams() = default;
 
-        unsigned short response_code = MHD_HTTP_OK;
+        unsigned short response_code = MHD_YES;
         std::string response_message;
 
         std::vector<std::pair<std::string, std::string>> headers;
@@ -85,29 +101,63 @@ namespace lmh {
          */
         virtual ResponseParams createResponse(struct MHD_Connection* connection,
                                     const char* url, const char* method, const char* upload_data,
-                                    size_t* upload_data_size, std::stringstream& response) = 0;
+                                    size_t* upload_data_size, void** ptr, std::stringstream& response) = 0;
 
         int handleRequest(struct MHD_Connection* connection,
                                   const char* url, const char* method, const char* upload_data,
-                                  size_t* upload_data_size) override {
+                                  size_t* upload_data_size, void** ptr) override {
 
-            std::stringstream response_ss;
-            auto const response_params = createResponse(connection, url, method, upload_data, upload_data_size, response_ss);
+            // state is destroyed in specific handler
+            if(not *ptr) *ptr = create_state();
 
-            //Send response.
-            auto response_str = response_ss.str();
-            struct MHD_Response * response = MHD_create_response_from_buffer(
-                    response_str.size(),
-                    response_str.data(), MHD_RESPMEM_MUST_COPY);
+            auto* state = reinterpret_cast<lmh::ConnectionState*>(*ptr);
 
-            for(auto const& [hdr, hdr_val]: response_params.headers ) {
-                MHD_add_response_header(response, hdr.c_str(), hdr_val.c_str());
+            // default return is - continue with connection
+            int ret = MHD_YES;
+            if(not state->response_sent) {
+
+
+                std::string meth(method);
+                // response not sent, because we did not receive any POST data yet.
+                // ptr is now set, we can return and wait for data to arrive.
+                if(meth == "POST" and upload_data == nullptr and state->response_data.empty()) {
+                    return MHD_YES;
+                }
+
+                // it response is not created yet, call createResponse & co
+                if(state->response_data.empty()) {
+                    std::stringstream response_ss;
+                    auto const response_params = createResponse(connection, url, method, upload_data, upload_data_size,
+                                                                ptr,
+                                                                response_ss);
+
+                    // we should not continue with connection, bail out now
+                    if(response_params.response_code == MHD_NO) {
+                        return MHD_NO;
+                    } else {
+                        state->response_data = response_ss.str();
+                        state->response_headers = response_params.headers;
+                    }
+                }
+
+                auto *response = MHD_create_response_from_buffer(
+                        state->response_data.size(),
+                        (void *) state->response_data.c_str(), MHD_RESPMEM_MUST_COPY);
+
+                            for(auto const& [hdr, hdr_val]: state->response_headers ) {
+                                MHD_add_response_header(response, hdr.c_str(), hdr_val.c_str());
+                            }
+
+                ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
+                if (ret == MHD_YES) {
+                    state->response_sent = true;
+                }
+
+                MHD_destroy_response(response);
             }
 
-            int ret = MHD_queue_response(connection, response_params.response_code, response);
-            MHD_destroy_response(response);
-
-            return ret;
+            // except handlers won't say otherwise, we continue with connection
+            return MHD_YES;
         }
     };
 
@@ -145,8 +195,19 @@ namespace lmh {
                 return MHD_queue_response (connection, MHD_HTTP_NOT_FOUND, response);
             }
 
-            return controller->handleRequest(connection, url, method, upload_data, upload_data_size);
+            return controller->handleRequest(connection, url, method, upload_data, upload_data_size, ptr);
         }
+
+        static int request_complete_handler(void *cls, struct MHD_Connection* connection, void **con_cls, enum MHD_RequestTerminationCode toe) {
+
+            auto* cs = static_cast<struct ConnectionState*>(*con_cls);
+
+            if(cs)
+                return cs->conroller.handleComplete(connection, toe, cs);
+
+            return MHD_YES;
+        }
+
     public:
         explicit WebServer(uint16_t p) : port_(p) {};
 
@@ -171,10 +232,11 @@ namespace lmh {
                                       reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
                                       this,
                                       MHD_OPTION_SOCK_ADDR, &bind_addr,
+                                      MHD_OPTION_NOTIFY_COMPLETED, reinterpret_cast<MHD_RequestCompletedCallback>(request_complete_handler), nullptr,
                                       MHD_OPTION_END);
 
             if(!daemon_)
-                return 1;
+                return false;
 
             while(true){
                 ::usleep(100*1000);
@@ -187,7 +249,7 @@ namespace lmh {
             }
 
             MHD_stop_daemon(daemon_);
-            return 0;
+            return true;
         }
     };
 }
