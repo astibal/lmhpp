@@ -198,14 +198,12 @@ namespace lmh {
             return controller->handleRequest(connection, url, method, upload_data, upload_data_size, ptr);
         }
 
-        static int request_complete_handler(void *cls, struct MHD_Connection* connection, void **con_cls, enum MHD_RequestTerminationCode toe) {
+        static void request_complete_handler(void *cls, struct MHD_Connection* connection, void **con_cls, enum MHD_RequestTerminationCode toe) {
 
             auto* cs = static_cast<struct ConnectionState*>(*con_cls);
 
             if(cs)
-                return cs->conroller.handleComplete(connection, toe, cs);
-
-            return MHD_YES;
+                cs->conroller.handleComplete(connection, toe, cs);
         }
 
     public:
