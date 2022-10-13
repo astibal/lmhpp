@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef LMHTTPD_HPP
 #define LMHTTPD_HPP
 
+#include <arpa/inet.h>
+
 #include <microhttpd.h>
 #include <iostream>
 #include <cstring>
