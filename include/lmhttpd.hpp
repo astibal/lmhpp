@@ -169,6 +169,7 @@ namespace lmh {
         struct MHD_Daemon* daemon_;
         struct options_t {
             bool bind_loopback = false;
+            std::optional<std::pair<std::string, std::string>> certificate;
 
             // optional handlers
             std::optional<std::function<bool()>> handler_should_terminate;
@@ -227,13 +228,34 @@ namespace lmh {
             bind_addr.sin_port = htons(port_);
             if(options().bind_loopback) bind_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-            daemon_ = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION,
-                                      port_, nullptr, nullptr,
-                                      reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
-                                      this,
-                                      MHD_OPTION_SOCK_ADDR, &bind_addr,
-                                      MHD_OPTION_NOTIFY_COMPLETED, reinterpret_cast<MHD_RequestCompletedCallback>(request_complete_handler), nullptr,
-                                      MHD_OPTION_END);
+            if(options().certificate.has_value()) {
+
+                auto key_src = options().certificate->first;
+                auto cert_src = options().certificate->second;
+
+                daemon_ = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION | MHD_USE_SSL,
+                                           port_, nullptr, nullptr,
+                                           reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
+                                           this,
+                                           MHD_OPTION_SOCK_ADDR, &bind_addr,
+                                           MHD_OPTION_NOTIFY_COMPLETED,
+                                           reinterpret_cast<MHD_RequestCompletedCallback>(request_complete_handler),
+                                           nullptr,
+                                           MHD_OPTION_HTTPS_MEM_KEY, key_src.c_str(),
+                                           MHD_OPTION_HTTPS_MEM_CERT, cert_src.c_str(),
+                                           MHD_OPTION_END);
+
+            } else {
+                daemon_ = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION,
+                                           port_, nullptr, nullptr,
+                                           reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
+                                           this,
+                                           MHD_OPTION_SOCK_ADDR, &bind_addr,
+                                           MHD_OPTION_NOTIFY_COMPLETED,
+                                           reinterpret_cast<MHD_RequestCompletedCallback>(request_complete_handler),
+                                           nullptr,
+                                           MHD_OPTION_END);
+            }
 
             if(!daemon_)
                 return false;
