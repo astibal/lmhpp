@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define LMHTTPD_HPP
 
 #include <arpa/inet.h>
+#include <unistd.h>
 
 #include <microhttpd.h>
 #include <iostream>
@@ -58,6 +59,8 @@ namespace lmh {
         bool response_sent = false;
         std::vector<std::pair<std::string,std::string>> response_headers;
         std::string response_data;
+
+        uint32_t request_waiting_loop_counter = 0;
     };
 
     class Controller{
@@ -94,8 +97,11 @@ namespace lmh {
 /**
  * The dynamic controller is a controller for creating user defined pages.
  */
-    class DynamicController:public Controller {
+    class DynamicController: public Controller {
     public:
+        static inline timespec waiting_usec_sleep = { 0, 10000000 }; // 10 ms
+        static inline uint32_t waiting_loops = 300; // this is ~ 3s
+
         bool validPath(const char* path, const char* method) override = 0;
 
         /**
@@ -123,6 +129,17 @@ namespace lmh {
                 // response not sent, because we did not receive any POST data yet.
                 // ptr is now set, we can return and wait for data to arrive.
                 if(meth == "POST" and upload_data == nullptr and state->response_data.empty()) {
+
+                    // request timeout - empty request
+                    if(++state->request_waiting_loop_counter > DynamicController::waiting_loops)
+                        return MHD_NO;
+
+                    timespec remaining;
+                    nanosleep(&DynamicController::waiting_usec_sleep, &remaining);
+
+                    // we don't care if we won't succeed with sleep, we will get here multiple times
+                    // so few cycles more doesn't matter.
+
                     return MHD_YES;
                 }
 
