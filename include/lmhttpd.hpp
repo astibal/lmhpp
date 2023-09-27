@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <microhttpd.h>
 #include <iostream>
@@ -237,14 +238,25 @@ namespace lmh {
             controllers.emplace_back(controller);
         };
 
-        int start(){
+        bool is_daemon_alive() {
+
+            auto const* fd_info = MHD_get_daemon_info(daemon_, MHD_DAEMON_INFO_LISTEN_FD);
+            if (not fd_info || ::fcntl(fd_info->listen_fd, F_GETFL) == -1) {
+                return false;
+            }
+            return true;
+        }
+
+        void start_daemon() {
+
+            stop_daemon();
+
             sockaddr_in bind_addr{};
 
             memset(&bind_addr, 0, sizeof(bind_addr));
             bind_addr.sin_family = AF_INET;
             bind_addr.sin_port = htons(port_);
             if(options().bind_loopback) bind_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-
             if(options().certificate.has_value()) {
 
                 auto key_src = options().certificate->first;
@@ -274,11 +286,27 @@ namespace lmh {
                                            MHD_OPTION_END);
             }
 
-            if(!daemon_)
-                return false;
+        }
+
+        void stop_daemon() {
+            if(daemon_)
+                MHD_stop_daemon(daemon_);
+        }
+
+        int start(){
+
+            start_daemon();
+
+            timespec sleeptime {};
+            sleeptime.tv_sec = 1;
+
 
             while(true){
-                ::usleep(100*1000);
+                nanosleep(&sleeptime, nullptr);
+
+                if(not is_daemon_alive()) {
+                    start_daemon();
+                }
 
                 if(options().handler_should_terminate.has_value()) {
                     auto const& sh_callback = options().handler_should_terminate.value();
@@ -287,7 +315,7 @@ namespace lmh {
                 }
             }
 
-            MHD_stop_daemon(daemon_);
+            stop_daemon();
             return true;
         }
     };
