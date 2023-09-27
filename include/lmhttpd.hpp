@@ -191,6 +191,7 @@ namespace lmh {
 
             // optional handlers
             std::optional<std::function<bool()>> handler_should_terminate;
+            std::vector<std::string> allowed_ips = { "*", };
         };
         options_t options_;
 
@@ -201,7 +202,14 @@ namespace lmh {
                                    const char * url, const char * method, const char * version,
                                    const char * upload_data, size_t * upload_data_size, void ** ptr) {
 
+
             auto const* server = static_cast<WebServer*>(cls);
+
+            if (!server->is_ip_allowed(connection)) {
+                return MHD_queue_response(connection, MHD_HTTP_FORBIDDEN,
+                                          MHD_create_response_from_buffer(0, nullptr, MHD_RESPMEM_PERSISTENT));
+            }
+
 
             Controller* controller = nullptr;
             for(auto* c: server->controllers){
@@ -317,6 +325,46 @@ namespace lmh {
 
             stop_daemon();
             return true;
+        }
+
+        static std::string connection_ip(MHD_Connection *connection) {
+            // Get the IP address of the client
+
+            std::string ip;
+
+            auto const* ci = MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CLIENT_ADDRESS);
+            if (nullptr == ci || nullptr == ci->client_addr) {
+                return ip;
+            }
+            std::array<char, INET6_ADDRSTRLEN>client_ip {0};
+
+            if (ci->client_addr->sa_family == AF_INET) { // IPv4
+                auto *addr = (struct sockaddr_in const*) ci->client_addr;
+                inet_ntop(AF_INET, &addr->sin_addr, client_ip.data(), client_ip.size());
+            }
+            else if (ci->client_addr->sa_family == AF_INET6) { // IPv6
+                auto *addr = (struct sockaddr_in6 const*) ci->client_addr;
+                inet_ntop(AF_INET6, &addr->sin6_addr, client_ip.data(), client_ip.size());
+            }
+            else {
+                return ip;
+            }
+
+            ip.assign(client_ip.data(), client_ip.size());
+            return ip;
+        }
+
+        bool is_ip_allowed(MHD_Connection *connection) const {
+
+            auto ip = connection_ip(connection);
+
+            return std::any_of(options().allowed_ips.begin(), options().allowed_ips.end(),
+                   [&](auto const& it){
+                        if(it == "all" or it == "*") {
+                            return true;
+                        }
+                        return it == ip;
+            });
         }
     };
 }
