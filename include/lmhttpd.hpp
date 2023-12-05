@@ -184,7 +184,7 @@ namespace lmh {
     class WebServer{
     private:
         uint16_t port_;
-        struct MHD_Daemon* daemon_;
+        MHD_Daemon* daemon_ = nullptr;
         struct options_t {
             bool bind_loopback = false;
             std::optional<std::pair<std::string, std::string>> certificate;
