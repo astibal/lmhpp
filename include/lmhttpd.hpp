@@ -187,11 +187,24 @@ namespace lmh {
         MHD_Daemon* daemon_ = nullptr;
         struct options_t {
             bool bind_loopback = false;
+            std::string bind_address;
+            std::string bind_interface;
+
             std::optional<std::pair<std::string, std::string>> certificate;
 
             // optional handlers
             std::optional<std::function<bool()>> handler_should_terminate;
             std::vector<std::string> allowed_ips = { "*", };
+
+            bool is_allowed_ip(std::string_view ip) const {
+                return std::any_of(allowed_ips.begin(), allowed_ips.end(),
+                                   [&](auto const& it){
+                                       if(it == "all" or it == "*") {
+                                           return true;
+                                       }
+                                       return it == ip;
+                                   });
+            };
         };
         options_t options_;
 
@@ -259,6 +272,12 @@ namespace lmh {
 
             stop_daemon();
 
+            auto sleepy = [](auto l) {
+                timespec ts{};
+                ts.tv_sec = l;
+                nanosleep(&ts, nullptr);
+            };
+
             int attempts = 12;
             while(! daemon_ && attempts >= 0) {
                 sockaddr_in bind_addr{};
@@ -266,7 +285,42 @@ namespace lmh {
                 memset(&bind_addr, 0, sizeof(bind_addr));
                 bind_addr.sin_family = AF_INET;
                 bind_addr.sin_port = htons(port_);
-                if(options().bind_loopback) bind_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                if(options().bind_loopback) {
+                    bind_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                }
+                else {
+                    if(! options().bind_address.empty())
+                        inet_pton(AF_INET, options().bind_address.c_str(), &bind_addr.sin_addr);
+                }
+
+                auto listen_socket = socket(AF_INET, SOCK_STREAM, 0);
+                if (listen_socket == -1) {
+                    sleepy(5);
+                    continue;
+                }
+
+                if(! options().bind_interface.empty()) {
+                    auto ret = setsockopt(listen_socket, SOL_SOCKET, SO_BINDTODEVICE, options().bind_interface.c_str(),
+                               static_cast<unsigned int>(options().bind_interface.size()));
+                    if(ret < 0) {
+                        close(listen_socket);
+                        sleepy(5);
+                        continue;
+                    }
+                }
+
+                if (bind(listen_socket, (sockaddr*)&bind_addr, sizeof(bind_addr)) == -1) {
+                    close(listen_socket);
+                    sleepy(5);
+                    continue;
+                }
+
+                if (listen(listen_socket, SOMAXCONN) == -1) {
+                    close(listen_socket);
+                    sleepy(5);
+                    continue;
+                }
+
                 if(options().certificate.has_value()) {
 
                     auto key_src = options().certificate->first;
@@ -276,7 +330,7 @@ namespace lmh {
                                                port_, nullptr, nullptr,
                                                reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
                                                this,
-                                               MHD_OPTION_SOCK_ADDR, &bind_addr,
+                                               MHD_OPTION_LISTEN_SOCKET, listen_socket,
                                                MHD_OPTION_NOTIFY_COMPLETED,
                                                reinterpret_cast<MHD_RequestCompletedCallback>(request_complete_handler),
                                                nullptr,
@@ -289,7 +343,7 @@ namespace lmh {
                                                port_, nullptr, nullptr,
                                                reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
                                                this,
-                                               MHD_OPTION_SOCK_ADDR, &bind_addr,
+                                               MHD_OPTION_LISTEN_SOCKET, listen_socket,
                                                MHD_OPTION_NOTIFY_COMPLETED,
                                                reinterpret_cast<MHD_RequestCompletedCallback>(request_complete_handler),
                                                nullptr,
@@ -368,14 +422,7 @@ namespace lmh {
         bool is_ip_allowed(MHD_Connection *connection) const {
 
             auto ip = connection_ip(connection);
-
-            return std::any_of(options().allowed_ips.begin(), options().allowed_ips.end(),
-                   [&](auto const& it){
-                        if(it == "all" or it == "*") {
-                            return true;
-                        }
-                        return it == ip;
-            });
+            return options().is_allowed_ip(ip);
         }
     };
 }
