@@ -361,7 +361,7 @@ namespace lmh {
                 return ip;
             }
 
-            ip.assign(client_ip.data(), client_ip.size());
+            ip.assign(client_ip.begin(), std::find(client_ip.begin(), client_ip.end(), '\0'));
             return ip;
         }
 
