@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fcntl.h>
 
 #include <microhttpd.h>
+
+#include <memory>
 #include <iostream>
 #include <cstring>
 #include <vector>
@@ -209,7 +211,7 @@ namespace lmh {
         options_t options_;
 
         /** List of controllers this server has. */
-        std::vector<Controller*> controllers;
+        std::vector<std::shared_ptr<Controller>> controllers;
 
         static int request_handler(void * cls, struct MHD_Connection * connection,
                                    const char * url, const char * method, const char * version,
@@ -224,20 +226,14 @@ namespace lmh {
             }
 
 
-            Controller* controller = nullptr;
-            for(auto* c: server->controllers){
-                if(c->validPath(url, method)){
-                    controller = c;
-                    break;
+            for(auto const& c: server->controllers){
+                if(c and c->validPath(url, method)){
+                    return c->handleRequest(connection, url, method, upload_data, upload_data_size, ptr);
                 }
             }
 
-            if(!controller){
-                struct MHD_Response* response = MHD_create_response_from_buffer(0, nullptr, MHD_RESPMEM_PERSISTENT);
-                return MHD_queue_response (connection, MHD_HTTP_NOT_FOUND, response);
-            }
-
-            return controller->handleRequest(connection, url, method, upload_data, upload_data_size, ptr);
+            struct MHD_Response* response = MHD_create_response_from_buffer(0, nullptr, MHD_RESPMEM_PERSISTENT);
+            return MHD_queue_response (connection, MHD_HTTP_NOT_FOUND, response);
         }
 
         static void request_complete_handler(void *cls, struct MHD_Connection* connection, void **con_cls, enum MHD_RequestTerminationCode toe) {
@@ -255,7 +251,7 @@ namespace lmh {
         options_t const& options() const { return options_; }
 
 
-        void addController(Controller* controller){
+        void addController(std::shared_ptr<Controller> const& controller){
             controllers.emplace_back(controller);
         };
 
