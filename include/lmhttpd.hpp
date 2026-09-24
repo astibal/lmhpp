@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <microhttpd.h>
 
+#include <algorithm>
 #include <memory>
 #include <iostream>
 #include <cstring>
