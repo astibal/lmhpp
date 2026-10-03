@@ -61,6 +61,7 @@ namespace lmh {
         std::string request_data;
 
         bool response_sent = false;
+        unsigned short response_code = MHD_HTTP_OK;
         std::vector<std::pair<std::string,std::string>> response_headers;
         std::string response_data;
 
@@ -160,6 +161,12 @@ namespace lmh {
                     } else {
                         state->response_data = response_ss.str();
                         state->response_headers = response_params.headers;
+                        // MHD_YES historically meant "continue" in older
+                        // controllers. Preserve that as HTTP 200, but honor
+                        // explicit HTTP error/status codes from responders.
+                        state->response_code = response_params.response_code == MHD_YES
+                                             ? MHD_HTTP_OK
+                                             : response_params.response_code;
                     }
                 }
 
@@ -171,7 +178,7 @@ namespace lmh {
                                 MHD_add_response_header(response, hdr.c_str(), hdr_val.c_str());
                             }
 
-                ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
+                ret = MHD_queue_response(connection, state->response_code, response);
                 if (ret == MHD_YES) {
                     state->response_sent = true;
                 }
