@@ -120,8 +120,11 @@ namespace lmh {
                                   const char* url, const char* method, const char* upload_data,
                                   size_t* upload_data_size, void** ptr) override {
 
-            // state is destroyed in specific handler
-            if(not *ptr) *ptr = create_state();
+            // libmicrohttpd invokes a new request once with an empty
+            // connection context before delivering its body (including an
+            // empty body).  Initialize the context and let it call us again.
+            const bool first_call = not *ptr;
+            if(first_call) *ptr = create_state();
 
             auto* state = reinterpret_cast<lmh::ConnectionState*>(*ptr);
 
@@ -131,20 +134,7 @@ namespace lmh {
 
 
                 std::string meth(method);
-                // response not sent, because we did not receive any POST data yet.
-                // ptr is now set, we can return and wait for data to arrive.
-                if(meth == "POST" and upload_data == nullptr and state->response_data.empty()) {
-
-                    // request timeout - empty request
-                    if(++state->request_waiting_loop_counter > DynamicController::waiting_loops)
-                        return MHD_NO;
-
-                    timespec remaining;
-                    nanosleep(&DynamicController::waiting_usec_sleep, &remaining);
-
-                    // we don't care if we won't succeed with sleep, we will get here multiple times
-                    // so few cycles more doesn't matter.
-
+                if(meth == "POST" and first_call) {
                     return MHD_YES;
                 }
 
