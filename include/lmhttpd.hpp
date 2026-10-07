@@ -284,33 +284,33 @@ namespace lmh {
                 }
                 else {
                     if(! options().bind_address.empty())
-                        inet_pton(AF_INET, options().bind_address.c_str(), &bind_addr.sin_addr);
+                        ::inet_pton(AF_INET, options().bind_address.c_str(), &bind_addr.sin_addr);
                 }
 
-                auto listen_socket = socket(AF_INET, SOCK_STREAM, 0);
+                auto listen_socket = ::socket(AF_INET, SOCK_STREAM, 0);
                 if (listen_socket == -1) {
                     sleepy(5);
                     continue;
                 }
 
                 if(! options().bind_interface.empty()) {
-                    auto ret = setsockopt(listen_socket, SOL_SOCKET, SO_BINDTODEVICE, options().bind_interface.c_str(),
+                    auto ret = ::setsockopt(listen_socket, SOL_SOCKET, SO_BINDTODEVICE, options().bind_interface.c_str(),
                                static_cast<unsigned int>(options().bind_interface.size()));
                     if(ret < 0) {
-                        close(listen_socket);
+                        ::close(listen_socket);
                         sleepy(5);
                         continue;
                     }
                 }
 
-                if (bind(listen_socket, (sockaddr*)&bind_addr, sizeof(bind_addr)) == -1) {
-                    close(listen_socket);
+                if (::bind(listen_socket, (sockaddr*)&bind_addr, sizeof(bind_addr)) == -1) {
+                    ::close(listen_socket);
                     sleepy(5);
                     continue;
                 }
 
-                if (listen(listen_socket, SOMAXCONN) == -1) {
-                    close(listen_socket);
+                if (::listen(listen_socket, SOMAXCONN) == -1) {
+                    ::close(listen_socket);
                     sleepy(5);
                     continue;
                 }
