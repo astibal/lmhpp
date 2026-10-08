@@ -189,6 +189,7 @@ namespace lmh {
             bool bind_loopback = false;
             std::string bind_address;
             std::string bind_interface;
+            int listen_socket = -1;
 
             std::optional<std::pair<std::string, std::string>> certificate;
 
@@ -274,6 +275,16 @@ namespace lmh {
 
             int attempts = 12;
             while(! daemon_ && attempts >= 0) {
+                int listen_socket = -1;
+                if(options().listen_socket >= 0) {
+                    listen_socket = ::fcntl(options().listen_socket, F_DUPFD_CLOEXEC, 0);
+                    if(listen_socket < 0) {
+                        sleepy(5);
+                        --attempts;
+                        continue;
+                    }
+                }
+
                 sockaddr_in bind_addr{};
 
                 memset(&bind_addr, 0, sizeof(bind_addr));
@@ -287,32 +298,38 @@ namespace lmh {
                         ::inet_pton(AF_INET, options().bind_address.c_str(), &bind_addr.sin_addr);
                 }
 
-                auto listen_socket = ::socket(AF_INET, SOCK_STREAM, 0);
-                if (listen_socket == -1) {
-                    sleepy(5);
-                    continue;
-                }
-
-                if(! options().bind_interface.empty()) {
-                    auto ret = ::setsockopt(listen_socket, SOL_SOCKET, SO_BINDTODEVICE, options().bind_interface.c_str(),
-                               static_cast<unsigned int>(options().bind_interface.size()));
-                    if(ret < 0) {
-                        ::close(listen_socket);
+                if(listen_socket < 0) {
+                    listen_socket = ::socket(AF_INET, SOCK_STREAM, 0);
+                    if (listen_socket == -1) {
                         sleepy(5);
+                        --attempts;
                         continue;
                     }
-                }
 
-                if (::bind(listen_socket, (sockaddr*)&bind_addr, sizeof(bind_addr)) == -1) {
-                    ::close(listen_socket);
-                    sleepy(5);
-                    continue;
-                }
+                    if(! options().bind_interface.empty()) {
+                        auto ret = ::setsockopt(listen_socket, SOL_SOCKET, SO_BINDTODEVICE, options().bind_interface.c_str(),
+                                   static_cast<unsigned int>(options().bind_interface.size()));
+                        if(ret < 0) {
+                            ::close(listen_socket);
+                            sleepy(5);
+                            --attempts;
+                            continue;
+                        }
+                    }
 
-                if (::listen(listen_socket, SOMAXCONN) == -1) {
-                    ::close(listen_socket);
-                    sleepy(5);
-                    continue;
+                    if (::bind(listen_socket, (sockaddr*)&bind_addr, sizeof(bind_addr)) == -1) {
+                        ::close(listen_socket);
+                        sleepy(5);
+                        --attempts;
+                        continue;
+                    }
+
+                    if (::listen(listen_socket, SOMAXCONN) == -1) {
+                        ::close(listen_socket);
+                        sleepy(5);
+                        --attempts;
+                        continue;
+                    }
                 }
 
                 if(options().certificate.has_value()) {
@@ -345,6 +362,7 @@ namespace lmh {
                 }
 
                 if(! daemon_) {
+                    ::close(listen_socket);
                     timespec wait{};
                     timespec remain{};
                     wait.tv_sec = 5;
@@ -356,8 +374,10 @@ namespace lmh {
         }
 
         void stop_daemon() {
-            if(daemon_)
+            if(daemon_) {
                 MHD_stop_daemon(daemon_);
+                daemon_ = nullptr;
+            }
         }
 
         int start(){
