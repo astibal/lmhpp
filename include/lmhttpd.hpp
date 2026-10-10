@@ -191,6 +191,8 @@ namespace lmh {
             std::string bind_interface;
 
             std::optional<std::pair<std::string, std::string>> certificate;
+            unsigned int thread_pool_size = 0;
+            bool allow_upgrade = false;
 
             // optional handlers
             std::optional<std::function<bool()>> handler_should_terminate;
@@ -323,12 +325,15 @@ namespace lmh {
                     continue;
                 }
 
+                const auto daemon_flags = static_cast<unsigned int>(
+                    MHD_USE_EPOLL_INTERNALLY | (options().allow_upgrade ? MHD_ALLOW_UPGRADE : 0));
+
                 if(options().certificate.has_value()) {
 
                     auto key_src = options().certificate->first;
                     auto cert_src = options().certificate->second;
 
-                    daemon_ = MHD_start_daemon(MHD_USE_EPOLL_INTERNALLY | MHD_USE_SSL,
+                    daemon_ = MHD_start_daemon(daemon_flags | MHD_USE_SSL,
                                                port_, nullptr, nullptr,
                                                reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
                                                this,
@@ -340,8 +345,19 @@ namespace lmh {
                                                MHD_OPTION_HTTPS_MEM_CERT, cert_src.c_str(),
                                                MHD_OPTION_END);
 
+                } else if(options().thread_pool_size > 0) {
+                    daemon_ = MHD_start_daemon(daemon_flags,
+                                               port_, nullptr, nullptr,
+                                               reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
+                                               this,
+                                               MHD_OPTION_LISTEN_SOCKET, listen_socket,
+                                               MHD_OPTION_NOTIFY_COMPLETED,
+                                               reinterpret_cast<MHD_RequestCompletedCallback>(request_complete_handler),
+                                               nullptr,
+                                               MHD_OPTION_THREAD_POOL_SIZE, options().thread_pool_size,
+                                               MHD_OPTION_END);
                 } else {
-                    daemon_ = MHD_start_daemon(MHD_USE_EPOLL_INTERNALLY,
+                    daemon_ = MHD_start_daemon(daemon_flags,
                                                port_, nullptr, nullptr,
                                                reinterpret_cast<MHD_AccessHandlerCallback>(&request_handler),
                                                this,
