@@ -194,6 +194,7 @@ namespace lmh {
 
             // optional handlers
             std::optional<std::function<bool()>> handler_should_terminate;
+            std::optional<std::function<bool(int)>> configure_listen_socket;
             std::vector<std::string> allowed_ips = { "*", };
 
             bool is_allowed_ip(std::string_view ip) const {
@@ -289,6 +290,13 @@ namespace lmh {
 
                 auto listen_socket = ::socket(AF_INET, SOCK_STREAM, 0);
                 if (listen_socket == -1) {
+                    sleepy(5);
+                    continue;
+                }
+
+                if (options().configure_listen_socket.has_value() &&
+                    !options().configure_listen_socket.value()(listen_socket)) {
+                    ::close(listen_socket);
                     sleepy(5);
                     continue;
                 }
