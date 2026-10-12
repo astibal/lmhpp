@@ -141,9 +141,15 @@ namespace lmh {
                 // it response is not created yet, call createResponse & co
                 if(state->response_data.empty()) {
                     std::stringstream response_ss;
+                    const bool had_upload_data = upload_data_size && *upload_data_size > 0;
                     auto const response_params = createResponse(connection, url, method, upload_data, upload_data_size,
                                                                 ptr,
                                                                 response_ss);
+
+                    // libmicrohttpd delivers POST bodies over one or more
+                    // callbacks and invokes us once more with size zero.
+                    // Consuming a chunk is not a completed HTTP response.
+                    if(had_upload_data) return MHD_YES;
 
                     // we should not continue with connection, bail out now
                     if(response_params.response_code == MHD_NO) {
@@ -163,6 +169,8 @@ namespace lmh {
                 auto *response = MHD_create_response_from_buffer(
                         state->response_data.size(),
                         (void *) state->response_data.c_str(), MHD_RESPMEM_MUST_COPY);
+
+                if(not response) return MHD_NO;
 
                             for(auto const& [hdr, hdr_val]: state->response_headers ) {
                                 MHD_add_response_header(response, hdr.c_str(), hdr_val.c_str());
@@ -219,9 +227,17 @@ namespace lmh {
 
             auto const* server = static_cast<WebServer*>(cls);
 
+            auto queue_empty = [connection](unsigned int status) -> int {
+                auto* response = MHD_create_response_from_buffer(
+                    0, nullptr, MHD_RESPMEM_PERSISTENT);
+                if(not response) return MHD_NO;
+                const int result = MHD_queue_response(connection, status, response);
+                MHD_destroy_response(response);
+                return result;
+            };
+
             if (!server->is_ip_allowed(connection)) {
-                return MHD_queue_response(connection, MHD_HTTP_FORBIDDEN,
-                                          MHD_create_response_from_buffer(0, nullptr, MHD_RESPMEM_PERSISTENT));
+                return queue_empty(MHD_HTTP_FORBIDDEN);
             }
 
 
@@ -231,8 +247,7 @@ namespace lmh {
                 }
             }
 
-            struct MHD_Response* response = MHD_create_response_from_buffer(0, nullptr, MHD_RESPMEM_PERSISTENT);
-            return MHD_queue_response (connection, MHD_HTTP_NOT_FOUND, response);
+            return queue_empty(MHD_HTTP_NOT_FOUND);
         }
 
         static void request_complete_handler(void *cls, struct MHD_Connection* connection, void **con_cls, enum MHD_RequestTerminationCode toe) {
@@ -255,6 +270,8 @@ namespace lmh {
         };
 
         bool is_daemon_alive() {
+
+            if(not daemon_) return false;
 
             auto const* fd_info = MHD_get_daemon_info(daemon_, MHD_DAEMON_INFO_LISTEN_FD);
             if (not fd_info || ::fcntl(fd_info->listen_fd, F_GETFL) == -1) {
@@ -299,7 +316,7 @@ namespace lmh {
                 }
 
                 if(listen_socket < 0) {
-                    listen_socket = ::socket(AF_INET, SOCK_STREAM, 0);
+                    listen_socket = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
                     if (listen_socket == -1) {
                         sleepy(5);
                         --attempts;
