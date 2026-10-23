@@ -83,7 +83,9 @@ namespace lmh {
         virtual int handleRequest(struct MHD_Connection* connection,
                                   const char* url, const char* method, const char* upload_data,
                                   size_t* upload_data_size, void** ptr) = 0;
-        virtual int handleComplete(struct MHD_Connection* connection, enum MHD_RequestTerminationCode toe, ConnectionState* cs) {
+        virtual int handleComplete(struct MHD_Connection* /* connection */,
+                                   enum MHD_RequestTerminationCode /* toe */,
+                                   ConnectionState* cs) {
             if(cs) delete cs;
             return MHD_YES;
         }
@@ -215,7 +217,8 @@ namespace lmh {
         std::vector<std::shared_ptr<Controller>> controllers;
 
         static int request_handler(void * cls, struct MHD_Connection * connection,
-                                   const char * url, const char * method, const char * version,
+                                   const char * url, const char * method,
+                                   const char * /* version */,
                                    const char * upload_data, size_t * upload_data_size, void ** ptr) {
 
 
@@ -237,7 +240,10 @@ namespace lmh {
             return MHD_queue_response (connection, MHD_HTTP_NOT_FOUND, response);
         }
 
-        static void request_complete_handler(void *cls, struct MHD_Connection* connection, void **con_cls, enum MHD_RequestTerminationCode toe) {
+        static void request_complete_handler(void * /* cls */,
+                                             struct MHD_Connection* connection,
+                                             void **con_cls,
+                                             enum MHD_RequestTerminationCode toe) {
 
             auto* cs = static_cast<struct ConnectionState*>(*con_cls);
 
