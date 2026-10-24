@@ -16,25 +16,27 @@ public:
         return false;
     }
 
-    void createResponse(struct MHD_Connection * connection,
-                                const char * url, const char * method, const char * upload_data,
-                                size_t * upload_data_size, std::stringstream& response) override {
+    ResponseParams createResponse(struct MHD_Connection* /* connection */,
+                                  const char* /* url */, const char* /* method */,
+                                  const char* /* upload_data */,
+                                  size_t* /* upload_data_size */, void** /* ptr */,
+                                  std::stringstream& response) override {
 
         time_t time_cur;
         time(&time_cur);
         struct tm* time_now = localtime(&time_cur);
         response << "<html><head><title>Hello World from cpp</title></head><body>Hello World at "
                  << time_now->tm_hour << ":" << time_now->tm_min << ":" << time_now->tm_sec << "!</body></html>";
+        return {};
     }
 
 };
 
 
-int main(int argc, char** argv){
-
-    MyController myPage;
+int main(){
+    auto myPage = std::make_shared<MyController>();
 
     WebServer server(8080);
-    server.addController(&myPage);
+    server.addController(myPage);
     server.start();
 }
