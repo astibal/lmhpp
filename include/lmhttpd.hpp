@@ -47,8 +47,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sstream>
 #include <optional>
 #include <functional>
+#include <string_view>
 
 namespace lmh {
+
+    [[nodiscard]] inline bool request_method_accepts_body(std::string_view method) noexcept {
+        return method == "POST" || method == "PUT" ||
+               method == "PATCH" || method == "DELETE";
+    }
 
 /**
  * Base controller for handling http requests.
@@ -133,8 +139,8 @@ namespace lmh {
             if(not state->response_sent) {
 
 
-                std::string meth(method);
-                if(meth == "POST" and first_call) {
+                const bool accepts_request_body = request_method_accepts_body(method);
+                if(accepts_request_body and first_call) {
                     return MHD_YES;
                 }
 
